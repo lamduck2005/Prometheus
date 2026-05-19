@@ -109,15 +109,8 @@ local ConfigurationFolder = RayfieldFolder.."/Configurations"
 local ConfigurationExtension = ".rfld"
 local settingsTable = {
 	General = {
-		-- if needs be in order just make getSetting(name)
 		rayfieldOpen = {Type = 'bind', Value = 'K', Name = 'Rayfield Keybind'},
-		-- buildwarnings
-		-- rayfieldprompts
-
 	},
-	System = {
-		usageAnalytics = {Type = 'toggle', Value = true, Name = 'Anonymised Analytics'},
-	}
 }
 
 -- Settings that have been overridden by the developer. These will not be saved to the user's configuration file
@@ -135,10 +128,6 @@ local function getSetting(category: string, name: string): any
 	end
 end
 
--- If requests/analytics have been disabled by developer, set the user-facing setting to false as well
-if requestsDisabled then
-	overrideSetting("System", "usageAnalytics", false)
-end
 
 local HttpService = getService('HttpService')
 local RunService = getService('RunService')
@@ -257,27 +246,7 @@ if debugX then
 	warn('Settings Loaded')
 end
 
-local ANALYTICS_TOKEN = "05de7f9fd320d3b8428cd1c77014a337b85b6c8efee2c5914f5ab5700c354b9a"
-
 local reporter = nil
-if not requestsDisabled and not useStudio then
-	local fetchSuccess, fetchResult = pcall((game :: any).HttpGet, game, "https://raw.githubusercontent.com/SiriusSoftwareLtd/Rayfield/refs/heads/main/reporter.lua")
-	if fetchSuccess and #fetchResult > 0 then
-		local execSuccess, Analytics = pcall(function()
-			return (loadstring(fetchResult) :: any)()
-		end)
-		if execSuccess and Analytics then
-			pcall(function()
-				reporter = Analytics.new({
-					url          = "https://rayfield-collect.sirius-software-ltd.workers.dev",
-					token        = ANALYTICS_TOKEN,
-					product_name = "Rayfield",
-					category     = "UILibrary",
-				})
-			end)
-		end
-	end
-end
 
 local promptUser = 2
 
@@ -1582,6 +1551,8 @@ local function updateSetting(category: string, setting: string, value: any)
 	saveSettings()
 end
 
+local KEY_FILE_NAME = "lamduckkey" -- !!!!!!!
+
 local function createSettings(window)
 	if not (writefile and isfile and readfile and isfolder and makefolder) and not useStudio then
 		if Topbar['Settings'] then Topbar.Settings.Visible = false end
@@ -1601,6 +1572,71 @@ local function createSettings(window)
 	end
 
 	-- Create sections and elements
+	newTab:CreateSection("INFO & COMMUNITY")
+	newTab:CreateParagraph({
+		Title = "About Script",
+		Content = "<font color='rgb(0, 255, 127)'><b>Script created by Lamduck.</b></font>\n<font color='rgb(255, 106, 255)'>Join the community below to chat, give feedback, request features, or request games.</font>"
+	})
+
+	newTab:CreateButton({
+		Name = "Join Discord Server",
+		Interact = "[Copy Link]",
+		Callback = function()
+			local link = "https://discord.gg/kn2uCJpBk2"
+			if setclipboard then
+				setclipboard(link)
+				RayfieldLibrary:Notify({Title = "Discord", Content = "Link copied to clipboard!", Duration = 3})
+			else
+				RayfieldLibrary:Notify({Title = "Error", Content = "Your executor does not support clipboard.", Duration = 3})
+			end
+		end
+	})
+
+	newTab:CreateButton({
+		Name = "Join Telegram Group",
+		Interact = "[Copy Link]",
+		Callback = function()
+			local link = "https://t.me/lamduckchat"
+			if setclipboard then
+				setclipboard(link)
+				RayfieldLibrary:Notify({Title = "Telegram", Content = "Link copied to clipboard!", Duration = 3})
+			else
+				RayfieldLibrary:Notify({Title = "Error", Content = "Your executor does not support clipboard.", Duration = 3})
+			end
+		end
+	})
+
+	local isConfirmingRemoveKey = false
+	local ButtonRemoveKey
+	ButtonRemoveKey = newTab:CreateButton({
+		Name = "Remove Saved Key",
+		Interact = "[Remove]",
+		Callback = function()
+			if not isConfirmingRemoveKey then
+				isConfirmingRemoveKey = true
+				ButtonRemoveKey:Set("ARE YOU SURE? (click again to confirm)")
+				task.delay(3, function()
+					if isConfirmingRemoveKey then
+						isConfirmingRemoveKey = false
+						ButtonRemoveKey:Set("Remove Saved Key")
+					end
+				end)
+				return
+			end
+
+			isConfirmingRemoveKey = false
+			ButtonRemoveKey:Set("Remove Saved Key")
+
+			local keyFilePath = RayfieldFolder .. "/Key System/" .. KEY_FILE_NAME .. ConfigurationExtension
+			if callSafely(isfile, keyFilePath) then
+				callSafely(writefile, keyFilePath, "")
+				RayfieldLibrary:Notify({Title = "Key Removed", Content = "Saved key has been removed. You will need to re-enter your key on next launch.", Duration = 5})
+			else
+				RayfieldLibrary:Notify({Title = "No Key Found", Content = "No saved key was found to remove.", Duration = 3})
+			end
+		end
+	})
+
 	for categoryName, settingCategory in pairs(settingsTable) do
 		newTab:CreateSection(categoryName)
 
@@ -1714,11 +1750,6 @@ local function verifyKey(inputKey, currentHwid)
     if inputSig == expectedSig then return true, expireTime else return false, 0 end
 end
 
-local key = generateKey(getClientHWID())
-print(key)
-setclipboard(key)
-
-
 -------------------------------------------------------
 function RayfieldLibrary:CreateWindow(Settings)
 	Settings = Settings or {}
@@ -1727,7 +1758,7 @@ function RayfieldLibrary:CreateWindow(Settings)
 		Title = "Lamduck Key System",
 		Subtitle = "Key Verification Required",
 		Note = "Key valid for 7 days!",
-		FileName = "lamduckkey",
+		FileName = KEY_FILE_NAME,
 		SaveKey = true,
 		GrabKeyFromSite = false,
 		Key = {}
@@ -3717,46 +3748,6 @@ function RayfieldLibrary:CreateWindow(Settings)
 	if not success then warn('Rayfield had an issue creating settings.') end
 
 	-- Report after createSettings so loadSettings() has run and usageAnalytics reflects the user's saved preference
-	if reporter and getSetting("System", "usageAnalytics") then
-		local themeName = "Default"
-		if Settings.Theme then
-			if type(Settings.Theme) == "string" then
-				themeName = Settings.Theme
-			elseif type(Settings.Theme) == "table" then
-				themeName = "Custom"
-			end
-		end
-
-		local discordInvite = nil
-		if Settings.Discord and Settings.Discord.Enabled and Settings.Discord.Invite and Settings.Discord.Invite ~= "" then
-			local raw = tostring(Settings.Discord.Invite)
-			-- Normalize: strip URL prefixes to extract just the invite code
-			discordInvite = (raw:match("discord%.gg/([%w%-]+)") or raw:match("discord%.com/invite/([%w%-]+)") or raw):sub(1, 32)
-		end
-
-		local sampleSend = false
-
-		-- Random Sampling Test
-		if not Settings.ScriptID and math.random() > 0.4 then
-			sampleSend = true
-		end
-
-		--if Settings.ScriptID then
-			reporter:windowCreated({
-				script_name        = Settings.Name or "Unknown",
-				script_version     = Release,
-				interface_version  = InterfaceBuild,
-				theme              = themeName,
-				is_mobile          = useMobileSizing and true or false,
-				has_key_system     = Settings.KeySystem and true or false,
-				discord_invite     = discordInvite,
-				config_saving      = (Settings.ConfigurationSaving and Settings.ConfigurationSaving.Enabled) and true or false,
-				script_id          = Settings.ScriptID or sampleSend and 'sid_tzfyxawonjx9' or nil,
-				verification_token = Settings.VerificationToken,
-			})
-		--end
-	end
-
 	return Window
 end
 
