@@ -1659,8 +1659,80 @@ local function fadeOutKeyUI(KeyMain)
 	TweenService:Create(KeyMain.NoteMessage, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {TextTransparency = 1}):Play()
 	TweenService:Create(KeyMain.Hide, TweenInfo.new(0.4, Enum.EasingStyle.Exponential), {ImageTransparency = 1}):Play()
 end
+----------------------------------------
+local SECRET_SALT = "its_a_me_Mario"
+local KEY_LINK = "https://example.com/get-key"
 
+local function getClientHWID()
+    if type(gethwid) == "function" then return gethwid() end
+    if syn and type(syn.get_hwid) == "function" then return syn.get_hwid() end
+    local success, clientId = pcall(function()
+        return game:GetService("RbxAnalyticsService"):GetClientId()
+    end)
+    if success and clientId then return clientId end
+    local player = game:GetService("Players").LocalPlayer
+    if player then return tostring(player.UserId) .. "_fallback" end
+    return "UNKNOWN_HWID"
+end
+
+local function hashString(str)
+    local h = 0x811c9dc5
+    for i = 1, #str do
+        h = bit32.bxor(h, string.byte(str, i))
+        h = (h * 0x01000193) % 4294967296
+    end
+    return string.format("%08x", h)
+end
+
+local function generateKey(hwid)
+    local expirationTime = os.time() + (7 * 24 * 60 * 60)
+    local expireStr = tostring(expirationTime)
+    local signature = hashString(hwid .. expireStr .. SECRET_SALT)
+    return expireStr .. "-" .. string.upper(signature)
+end
+
+local function copyToClipboard(text)
+    if type(setclipboard) == "function" then
+        setclipboard(tostring(text))
+        return true
+    end
+    if type(toclipboard) == "function" then
+        toclipboard(tostring(text))
+        return true
+    end
+    return false
+end
+
+local function verifyKey(inputKey, currentHwid)
+    local splitKey = string.split(inputKey, "-")
+    if #splitKey ~= 2 then return false, 0 end
+    local expireStr = splitKey[1]
+    local inputSig = splitKey[2]
+    local expireTime = tonumber(expireStr)
+    if not expireTime or os.time() > expireTime then return false, 0 end
+    local expectedSig = string.upper(hashString(currentHwid .. expireStr .. SECRET_SALT))
+    if inputSig == expectedSig then return true, expireTime else return false, 0 end
+end
+
+local key = generateKey(getClientHWID())
+print(key)
+setclipboard(key)
+
+
+-------------------------------------------------------
 function RayfieldLibrary:CreateWindow(Settings)
+	Settings = Settings or {}
+	Settings.KeySystem = true
+	Settings.KeySettings = {
+		Title = "Lamduck Key System",
+		Subtitle = "Key Verification Required",
+		Note = "Key valid for 7 days!",
+		FileName = "lamduckkey",
+		SaveKey = true,
+		GrabKeyFromSite = false,
+		Key = {}
+	}
+
 	if Rayfield:FindFirstChild('Loading') then
 		if getgenv and not getgenv().rayfieldCached then
 			Rayfield.Enabled = true
@@ -1861,10 +1933,26 @@ function RayfieldLibrary:CreateWindow(Settings)
 		end
 
 		if callSafely(isfile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension) then
-			for _, MKey in ipairs(Settings.KeySettings.Key) do
-				local savedKeys = callSafely(readfile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension)
-				if savedKeys and string.find(savedKeys, MKey) then
+			local savedKey = callSafely(readfile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension)
+			if savedKey then
+				local hwid = getClientHWID()
+				local isValid, expireTime = verifyKey(savedKey, hwid)
+				if isValid then
 					Passthrough = true
+					local expireDateStr = os.date("%Y-%m-%d %H:%M", expireTime)
+					RayfieldLibrary:Notify({
+						Title = "Key Loaded",
+						Content = "Saved key verified. Valid until: " .. expireDateStr,
+						Duration = 6,
+						Image = 4483362458,
+					})
+				else
+					callSafely(writefile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension, "")
+					game:GetService("StarterGui"):SetCore("SendNotification", {
+						Title = "Key Expired",
+						Text = "Your saved key is invalid or expired. Please enter a new key.",
+						Duration = 6,
+					})
 				end
 			end
 		end
@@ -1909,6 +1997,21 @@ function RayfieldLibrary:CreateWindow(Settings)
 				end
 			end
 
+			local isKeyLinkCopied = copyToClipboard(KEY_LINK)
+			if isKeyLinkCopied then
+				game:GetService("StarterGui"):SetCore("SendNotification", {
+					Title = "Key Required",
+					Text = "No valid key found. Key link copied to clipboard!",
+					Duration = 6,
+				})
+			else
+				game:GetService("StarterGui"):SetCore("SendNotification", {
+					Title = "Key Required",
+					Text = "No valid key found. Get your key at: " .. KEY_LINK,
+					Duration = 8,
+				})
+			end
+
 			local KeyMain = KeyUI.Main
 			KeyMain.Title.Text = Settings.KeySettings.Title or Settings.Name
 			KeyMain.Subtitle.Text = Settings.KeySettings.Subtitle or "Key System"
@@ -1947,39 +2050,34 @@ function RayfieldLibrary:CreateWindow(Settings)
 
 			KeyUI.Main.Input.InputBox.FocusLost:Connect(function()
 				if #KeyUI.Main.Input.InputBox.Text == 0 then return end
-				local KeyFound = false
-				local FoundKey = ''
-				for _, MKey in ipairs(Settings.KeySettings.Key) do
-					--if string.find(KeyMain.Input.InputBox.Text, MKey) then
-					--	KeyFound = true
-					--	FoundKey = MKey
-					--end
 
+				local hwid = getClientHWID()
+				local inputKey = KeyMain.Input.InputBox.Text
+				local isValid, expireTime = verifyKey(inputKey, hwid)
 
-					-- stricter key check
-					if KeyMain.Input.InputBox.Text == MKey then
-						KeyFound = true
-						FoundKey = MKey
-					end
-				end
-				if KeyFound then
+				if isValid then
+					local expireDateStr = os.date("%Y-%m-%d %H:%M", expireTime)
 					fadeOutKeyUI(KeyMain)
 					task.wait(0.51)
 					Passthrough = true
 					KeyMain.Visible = false
 					if Settings.KeySettings.SaveKey then
-						callSafely(writefile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension, FoundKey)
+						callSafely(writefile, RayfieldFolder.."/Key System".."/"..Settings.KeySettings.FileName..ConfigurationExtension, inputKey)
 						RayfieldLibrary:Notify({Title = "Key System", Content = "The key for this script has been saved successfully.", Image = 3605522284})
 					end
+					RayfieldLibrary:Notify({
+						Title = "Key Verified",
+						Content = "Access granted. Valid until: " .. expireDateStr,
+						Duration = 8,
+						Image = 4483362458,
+					})
 				else
-					if AttemptsRemaining == 0 then
-						fadeOutKeyUI(KeyMain)
-						task.wait(0.45)
-						Players.LocalPlayer:Kick("No Attempts Remaining")
-						game:Shutdown()
-					end
+					game:GetService("StarterGui"):SetCore("SendNotification", {
+						Title = "Invalid Key",
+						Text = "Key is invalid or expired. Please try again.",
+						Duration = 4,
+					})
 					KeyMain.Input.InputBox.Text = ""
-					AttemptsRemaining = AttemptsRemaining - 1
 					TweenService:Create(KeyMain, TweenInfo.new(0.6, Enum.EasingStyle.Exponential), {Size = UDim2.new(0, 467, 0, 175)}):Play()
 					TweenService:Create(KeyMain, TweenInfo.new(0.4, Enum.EasingStyle.Elastic), {Position = UDim2.new(0.495,0,0.5,0)}):Play()
 					task.wait(0.1)
