@@ -23,7 +23,7 @@ return {
 		PrettyPrint = false,
 		Seed = 0,
 		Steps = {
-			{ Name = "Vmify", Settings = {} },
+			-- { Name = "Vmify", Settings = {} },
 			{
 				Name = "ConstantArray",
 				Settings = {
